@@ -25,7 +25,7 @@ import {
   SUPPORTED_LANGUAGES,
   DEFAULT_CODE,
   executeCode,
-  type PistonRunResult,
+  type CodeRunResult,
 } from "@/lib/piston";
 import { recordAttempt, loadSkills, getMasteryPercent, getMasteryColor, getMasteryLabel } from "@/lib/bkt";
 
@@ -39,7 +39,7 @@ interface CodeStudioProps {
   initialCode?: string;
   initialLanguage?: string;
   topicContext?: string;
-  onRunComplete?: (result: PistonRunResult) => void;
+  onRunComplete?: (result: CodeRunResult) => void;
 }
 
 export default function CodeStudio({
@@ -88,7 +88,7 @@ export default function CodeStudio({
     setIsRunning(true);
     setOutput([]);
 
-    addOutput("info", `▶ Running ${selectedLang.label} (${selectedLang.version})...`);
+    addOutput("info", `▶ Running ${selectedLang.label}...`);
     addOutput("info", `─────────────────────────────────`);
 
     const startMs = performance.now();
@@ -96,39 +96,33 @@ export default function CodeStudio({
     try {
       const result = await executeCode({
         language: selectedLang.id,
-        version: selectedLang.version,
         code,
-        stdin: stdinVal,
+        stdin: stdinVal || undefined,
       });
 
       const elapsed = ((performance.now() - startMs) / 1000).toFixed(2);
 
-      if (result.compile) {
-        if (result.compile.stderr) {
-          addOutput("stderr", result.compile.stderr);
-        }
-        if (result.compile.stdout) {
-          addOutput("stdout", result.compile.stdout);
-        }
-      }
-
-      if (result.run.stdout) {
-        result.run.stdout.split("\n").forEach((line) => {
-          if (line !== "") addOutput("stdout", line);
-        });
-      }
-
-      if (result.run.stderr) {
-        result.run.stderr.split("\n").forEach((line) => {
+      if (result.compileError) {
+        result.compileError.split("\n").forEach((line: string) => {
           if (line !== "") addOutput("stderr", line);
         });
       }
 
-      addOutput("info", `─────────────────────────────────`);
-      const isSuccess = result.run.code === 0;
+      if (result.stdout) {
+        result.stdout.split("\n").forEach((line: string) => {
+          if (line !== "") addOutput("stdout", line);
+        });
+      }
+
+      if (result.stderr) {
+        result.stderr.split("\n").forEach((line: string) => {
+          if (line !== "") addOutput("stderr", line);
+        });
+      }
+      const isSuccess = result.exitCode === 0;
       addOutput(
         isSuccess ? "success" : "error",
-        `${isSuccess ? "✓" : "✗"} Exited with code ${result.run.code} · ${elapsed}s`
+        `${isSuccess ? "✓" : "✗"} Exited with code ${result.exitCode} · ${elapsed}s`
       );
 
       // Update BKT mastery
@@ -139,7 +133,7 @@ export default function CodeStudio({
       onRunComplete?.(result);
     } catch (err: any) {
       addOutput("error", `✗ Execution failed: ${err.message}`);
-      addOutput("info", "  Check your internet connection (Piston API required)");
+      addOutput("info", "  Check your internet connection (Wandbox API required)");
     } finally {
       setIsRunning(false);
     }

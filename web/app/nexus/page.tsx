@@ -350,7 +350,7 @@ export default function NexusLearnPage() {
               <CodeStudio
                 topicContext="programming"
                 onRunComplete={(result) => {
-                  const isSuccess = result.run.code === 0;
+                  const isSuccess = result.exitCode === 0;
                   const updated = recordAttempt(
                     loadSkills(),
                     "code_execution",

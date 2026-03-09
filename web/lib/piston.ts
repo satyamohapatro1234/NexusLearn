@@ -1,184 +1,235 @@
 /**
- * Piston Code Execution API
- * Free public API: emkc.org/api/v2/piston
- * No API key needed. Supports 80+ languages.
+ * Code Execution via Wandbox API
+ * Free, no API key, supports 12+ languages
+ * https://wandbox.org/
+ * 
+ * Note: Public Piston API became whitelist-only Feb 2026.
+ * Wandbox is free, open source, runs on Japanese infrastructure.
+ * For full offline use, self-host Wandbox or run DeepTutor's Python executor.
  */
 
-export interface PistonRunResult {
-  language: string;
-  version: string;
-  run: {
-    stdout: string;
-    stderr: string;
-    code: number;
-    signal: string | null;
-    output: string;
-  };
-  compile?: {
-    stdout: string;
-    stderr: string;
-    code: number;
-    signal: string | null;
-    output: string;
-  };
+export interface CodeRunResult {
+  stdout: string;
+  stderr: string;
+  compileError: string;
+  exitCode: number;
+  elapsedMs: number;
 }
 
 export interface CodeRunRequest {
   language: string;
-  version: string;
   code: string;
   stdin?: string;
-  args?: string[];
 }
 
 export const SUPPORTED_LANGUAGES = [
-  { id: "python",     label: "Python",      version: "3.10.0",  ext: "py",   icon: "🐍" },
-  { id: "javascript", label: "JavaScript",  version: "18.15.0", ext: "js",   icon: "🟨" },
-  { id: "typescript", label: "TypeScript",  version: "5.0.3",   ext: "ts",   icon: "🔷" },
-  { id: "cpp",        label: "C++",         version: "10.2.0",  ext: "cpp",  icon: "⚙️" },
-  { id: "c",          label: "C",           version: "10.2.0",  ext: "c",    icon: "🔧" },
-  { id: "rust",       label: "Rust",        version: "1.68.2",  ext: "rs",   icon: "🦀" },
-  { id: "go",         label: "Go",          version: "1.20.3",  ext: "go",   icon: "🐹" },
-  { id: "java",       label: "Java",        version: "15.0.2",  ext: "java", icon: "☕" },
-  { id: "kotlin",     label: "Kotlin",      version: "1.8.20",  ext: "kt",   icon: "🎯" },
-  { id: "swift",      label: "Swift",       version: "5.3.3",   ext: "swift",icon: "🍎" },
-  { id: "bash",       label: "Bash",        version: "5.2.0",   ext: "sh",   icon: "📜" },
-  { id: "ruby",       label: "Ruby",        version: "3.0.1",   ext: "rb",   icon: "💎" },
+  { id: "python",     label: "Python",     compiler: "cpython-head",      ext: "py",   icon: "🐍" },
+  { id: "javascript", label: "JavaScript", compiler: "nodejs-20.17.0",    ext: "js",   icon: "🟨" },
+  { id: "cpp",        label: "C++",        compiler: "gcc-head",          ext: "cpp",  icon: "⚙️" },
+  { id: "c",          label: "C",          compiler: "gcc-head-c",        ext: "c",    icon: "🔧" },
+  { id: "rust",       label: "Rust",       compiler: "rust-1.82.0",       ext: "rs",   icon: "🦀" },
+  { id: "go",         label: "Go",         compiler: "go-1.23.2",         ext: "go",   icon: "🐹" },
+  { id: "java",       label: "Java",       compiler: "openjdk-jdk-22+36", ext: "java", icon: "☕" },
+  { id: "ruby",       label: "Ruby",       compiler: "ruby-3.4.1",        ext: "rb",   icon: "💎" },
+  { id: "bash",       label: "Bash",       compiler: "bash",              ext: "sh",   icon: "📜" },
 ];
 
 export const DEFAULT_CODE: Record<string, string> = {
-  python: `# Python - NexusLearn Code Runner
-def greet(name):
-    return f"Hello, {name}! Welcome to NexusLearn."
+  python: `# Python — NexusLearn
+def fibonacci(n):
+    a, b = 0, 1
+    result = []
+    for _ in range(n):
+        result.append(a)
+        a, b = b, a + b
+    return result
 
-result = greet("Student")
-print(result)
+print("Fibonacci(10):", fibonacci(10))
+print("Sum:", sum(fibonacci(10)))`,
 
-# Try some math
-import math
-print(f"π = {math.pi:.4f}")
-print(f"√2 = {math.sqrt(2):.4f}")`,
-
-  javascript: `// JavaScript - NexusLearn Code Runner
-function greet(name) {
-  return \`Hello, \${name}! Welcome to NexusLearn.\`;
+  javascript: `// JavaScript — NexusLearn
+function fibonacci(n) {
+  let [a, b] = [0, 1];
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    result.push(a);
+    [a, b] = [b, a + b];
+  }
+  return result;
 }
 
-console.log(greet("Student"));
+console.log("Fibonacci(10):", fibonacci(10));
+console.log("Sum:", fibonacci(10).reduce((a, b) => a + b, 0));`,
 
-// Array operations
-const nums = [1, 2, 3, 4, 5];
-const sum = nums.reduce((a, b) => a + b, 0);
-console.log(\`Sum of [1..5] = \${sum}\`);`,
-
-  cpp: `// C++ - NexusLearn Code Runner
+  cpp: `// C++ — NexusLearn
 #include <iostream>
 #include <vector>
 #include <numeric>
 
+std::vector<int> fibonacci(int n) {
+    std::vector<int> result;
+    int a = 0, b = 1;
+    for (int i = 0; i < n; i++) {
+        result.push_back(a);
+        int c = a + b; a = b; b = c;
+    }
+    return result;
+}
+
 int main() {
-    std::cout << "Hello from C++! Welcome to NexusLearn." << std::endl;
-    
-    std::vector<int> nums = {1, 2, 3, 4, 5};
-    int sum = std::accumulate(nums.begin(), nums.end(), 0);
-    std::cout << "Sum of [1..5] = " << sum << std::endl;
-    
+    auto fib = fibonacci(10);
+    std::cout << "Fibonacci(10): ";
+    for (int x : fib) std::cout << x << " ";
+    std::cout << std::endl;
+    std::cout << "Sum: " << std::accumulate(fib.begin(), fib.end(), 0) << std::endl;
     return 0;
 }`,
 
-  rust: `// Rust - NexusLearn Code Runner
-fn main() {
-    println!("Hello from Rust! Welcome to NexusLearn.");
-    
-    let nums: Vec<i32> = (1..=5).collect();
-    let sum: i32 = nums.iter().sum();
-    println!("Sum of [1..5] = {}", sum);
-    
-    // Fibonacci
-    let fib = |n: u64| -> u64 {
-        let (mut a, mut b) = (0u64, 1u64);
-        for _ in 0..n { let c = a + b; a = b; b = c; }
-        a
-    };
-    println!("Fibonacci(10) = {}", fib(10));
+  c: `// C — NexusLearn
+#include <stdio.h>
+
+void fibonacci(int n) {
+    int a = 0, b = 1;
+    printf("Fibonacci(%d): ", n);
+    for (int i = 0; i < n; i++) {
+        printf("%d ", a);
+        int c = a + b; a = b; b = c;
+    }
+    printf("\\n");
+}
+
+int main() {
+    fibonacci(10);
+    return 0;
 }`,
 
-  go: `// Go - NexusLearn Code Runner
+  rust: `// Rust — NexusLearn
+fn fibonacci(n: u64) -> Vec<u64> {
+    let mut result = Vec::new();
+    let (mut a, mut b) = (0u64, 1u64);
+    for _ in 0..n {
+        result.push(a);
+        let c = a + b; a = b; b = c;
+    }
+    result
+}
+
+fn main() {
+    let fib = fibonacci(10);
+    println!("Fibonacci(10): {:?}", fib);
+    println!("Sum: {}", fib.iter().sum::<u64>());
+}`,
+
+  go: `// Go — NexusLearn
 package main
 
 import "fmt"
 
-func main() {
-    fmt.Println("Hello from Go! Welcome to NexusLearn.")
-    
-    sum := 0
-    for i := 1; i <= 5; i++ {
-        sum += i
-    }
-    fmt.Printf("Sum of [1..5] = %d\\n", sum)
-}`,
-
-  java: `// Java - NexusLearn Code Runner
-public class Main {
-    public static void main(String[] args) {
-        System.out.println("Hello from Java! Welcome to NexusLearn.");
-        
-        int sum = 0;
-        for (int i = 1; i <= 5; i++) sum += i;
-        System.out.printf("Sum of [1..5] = %d%n", sum);
-    }
-}`,
-  
-  typescript: `// TypeScript - NexusLearn Code Runner
-function greet(name: string): string {
-  return \`Hello, \${name}! Welcome to NexusLearn.\`;
+func fibonacci(n int) []int {
+	result := make([]int, n)
+	a, b := 0, 1
+	for i := 0; i < n; i++ {
+		result[i] = a
+		a, b = b, a+b
+	}
+	return result
 }
 
-console.log(greet("Student"));
+func main() {
+	fib := fibonacci(10)
+	fmt.Println("Fibonacci(10):", fib)
+	sum := 0
+	for _, v := range fib { sum += v }
+	fmt.Println("Sum:", sum)
+}`,
 
-const nums: number[] = [1, 2, 3, 4, 5];
-const sum: number = nums.reduce((a, b) => a + b, 0);
-console.log(\`Sum of [1..5] = \${sum}\`);`,
+  java: `// Java — NexusLearn
+import java.util.Arrays;
 
-  bash: `#!/bin/bash
-# Bash - NexusLearn Code Runner
-echo "Hello from Bash! Welcome to NexusLearn."
+public class Main {
+    static int[] fibonacci(int n) {
+        int[] result = new int[n];
+        int a = 0, b = 1;
+        for (int i = 0; i < n; i++) {
+            result[i] = a;
+            int c = a + b; a = b; b = c;
+        }
+        return result;
+    }
+    
+    public static void main(String[] args) {
+        int[] fib = fibonacci(10);
+        System.out.println("Fibonacci(10): " + Arrays.toString(fib));
+        System.out.println("Sum: " + Arrays.stream(fib).sum());
+    }
+}`,
 
-# Loop example
-sum=0
-for i in 1 2 3 4 5; do
-    sum=$((sum + i))
-done
-echo "Sum of [1..5] = $sum"`,
-
-  ruby: `# Ruby - NexusLearn Code Runner
-def greet(name)
-  "Hello, #{name}! Welcome to NexusLearn."
+  ruby: `# Ruby — NexusLearn
+def fibonacci(n)
+  result = []
+  a, b = 0, 1
+  n.times { result << a; a, b = b, a + b }
+  result
 end
 
-puts greet("Student")
-sum = (1..5).sum
-puts "Sum of [1..5] = #{sum}"`,
+fib = fibonacci(10)
+puts "Fibonacci(10): #{fib.inspect}"
+puts "Sum: #{fib.sum}"`,
+
+  bash: `#!/bin/bash
+# Bash — NexusLearn
+fibonacci() {
+  local n=\$1 a=0 b=1
+  local result=()
+  for ((i=0; i<n; i++)); do
+    result+=(\$a)
+    local c=\$((a+b)); a=\$b; b=\$c
+  done
+  echo "\${result[@]}"
+}
+
+fib=(\$(fibonacci 10))
+echo "Fibonacci(10): \${fib[@]}"
+sum=0
+for x in "\${fib[@]}"; do ((sum+=x)); done
+echo "Sum: \$sum"`,
 };
 
-export async function executeCode(req: CodeRunRequest): Promise<PistonRunResult> {
-  const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+export async function executeCode(req: CodeRunRequest): Promise<CodeRunResult> {
+  const lang = SUPPORTED_LANGUAGES.find((l) => l.id === req.language);
+  if (!lang) throw new Error(`Unsupported language: ${req.language}`);
+
+  const startMs = performance.now();
+
+  const body: Record<string, any> = {
+    compiler: lang.compiler,
+    code: req.code,
+  };
+  if (req.stdin) {
+    body.stdin = req.stdin;
+  }
+
+  const response = await fetch("https://wandbox.org/api/compile.json", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      language: req.language,
-      version: req.version,
-      files: [{ content: req.code }],
-      stdin: req.stdin || "",
-      args: req.args || [],
-      run_timeout: 10000,
-      compile_timeout: 10000,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    throw new Error(`Piston API error: ${response.status}`);
+    throw new Error(`Wandbox API error: ${response.status} ${response.statusText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  const elapsedMs = performance.now() - startMs;
+
+  // Wandbox status: "0" = success
+  const exitCode = data.status === "0" ? 0 : 1;
+
+  return {
+    stdout: data.program_output || "",
+    stderr: data.program_error || "",
+    compileError: data.compiler_error || "",
+    exitCode,
+    elapsedMs,
+  };
 }
