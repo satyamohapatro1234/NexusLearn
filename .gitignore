@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Next.js
+web/.next/
+web/out/
+web/build/
+
+# Env files
+.env
+.env.local
+DeepTutor.env
+*.env.local
+*.env.development.local
+*.env.test.local
+*.env.production.local
+
+# Data & cache
+data/user/
+data/cache/
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+web/public/avatars/*.glb
+web/public/avatars/animations/*.glb
