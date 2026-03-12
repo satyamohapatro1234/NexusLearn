@@ -1,219 +1,134 @@
 "use client";
 
 /**
- * VoiceControl - Free voice input/output using browser built-in APIs
- * - Speech Input: Web Speech API (SpeechRecognition) - Chrome/Edge built-in, zero cost
- * - Speech Output: SpeechSynthesis API - all browsers, zero cost
- * No API keys. No servers. Completely free.
+ * VoiceControl — NexusLearn Teacher Voice
+ * 
+ * Output: VibeVoice TTS (ws://localhost:8195) → expressive, human-sounding
+ *         Falls back to browser SpeechSynthesis if VibeVoice unavailable
+ * Input:  Web Speech API (SpeechRecognition) — Chrome/Edge, zero cost
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Mic, MicOff, Volume2, VolumeX, Loader2 } from "lucide-react";
+import { Mic, MicOff, Volume2, VolumeX, Loader2, Sparkles } from "lucide-react";
+import { getTTSClient, type AgentVoice } from "@/lib/ttsClient";
 
 interface VoiceControlProps {
   onTranscript: (text: string) => void;
   speakText?: string | null;
+  voicePersona?: AgentVoice;
   disabled?: boolean;
-  avatarSpeaking?: boolean;
   onSpeakingChange?: (speaking: boolean) => void;
 }
 
 export default function VoiceControl({
   onTranscript,
   speakText,
+  voicePersona = "guide",
   disabled = false,
   onSpeakingChange,
 }: VoiceControlProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [supported, setSupported] = useState(false);
+  const [usingVibeVoice, setUsingVibeVoice] = useState<boolean | null>(null);
   const [interimText, setInterimText] = useState("");
   const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const ttsRef = useRef(getTTSClient());
 
-  // Check browser support
   useEffect(() => {
-    const hasSpeechRecognition =
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-    const hasSpeechSynthesis =
-      typeof window !== "undefined" && "speechSynthesis" in window;
-    setSupported(hasSpeechRecognition && hasSpeechSynthesis);
+    fetch("http://localhost:8195/health", { signal: AbortSignal.timeout(2000) })
+      .then((r) => r.json())
+      .then((d) => setUsingVibeVoice(d.status === "ready"))
+      .catch(() => setUsingVibeVoice(false));
   }, []);
 
-  // Auto-speak when new text arrives
   useEffect(() => {
-    if (speakText && voiceEnabled && supported) {
-      speak(speakText);
-    }
+    if (speakText && voiceEnabled) handleSpeak(speakText);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speakText]);
 
-  const speak = useCallback(
-    (text: string) => {
-      if (!supported || !voiceEnabled) return;
+  const handleSpeak = useCallback(async (text: string) => {
+    if (!voiceEnabled || !text.trim()) return;
+    const clean = text
+      .replace(/[#*`_~[\]]/g, "")
+      .replace(/\$\$[\s\S]*?\$\$/g, "formula")
+      .replace(/```[\s\S]*?```/g, "code block")
+      .replace(/\*(Note:.*?)\*/g, "")
+      .substring(0, 500);
 
-      window.speechSynthesis.cancel();
-      const clean = text
-        .replace(/[#*`_~\[\]]/g, "")
-        .replace(/\$\$[\s\S]*?\$\$/g, "formula")
-        .replace(/\$[^$]*\$/g, "formula")
-        .replace(/```[\s\S]*?```/g, "code block")
-        .substring(0, 500);
-
-      const utterance = new SpeechSynthesisUtterance(clean);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-
-      // Pick a pleasant voice
-      const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(
-        (v) =>
-          v.name.includes("Google") ||
-          v.name.includes("Samantha") ||
-          v.name.includes("Karen") ||
-          v.name.includes("Daniel")
-      );
-      if (preferred) utterance.voice = preferred;
-
-      utterance.onstart = () => {
-        setIsSpeaking(true);
-        onSpeakingChange?.(true);
-      };
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        onSpeakingChange?.(false);
-      };
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        onSpeakingChange?.(false);
-      };
-
-      synthRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
-    },
-    [supported, voiceEnabled, onSpeakingChange]
-  );
+    setIsSpeaking(true);
+    onSpeakingChange?.(true);
+    await ttsRef.current.speak(clean, voicePersona, {
+      onEnd: () => { setIsSpeaking(false); onSpeakingChange?.(false); },
+      onFallback: () => setUsingVibeVoice(false),
+      onError: () => { setIsSpeaking(false); onSpeakingChange?.(false); },
+    });
+    setIsSpeaking(false);
+    onSpeakingChange?.(false);
+  }, [voiceEnabled, voicePersona, onSpeakingChange]);
 
   const stopSpeaking = () => {
-    window.speechSynthesis.cancel();
+    ttsRef.current.stop();
     setIsSpeaking(false);
     onSpeakingChange?.(false);
   };
 
   const startListening = useCallback(() => {
-    if (!supported || isListening) return;
-
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
+    if (isListening) return;
+    const hasSR = typeof window !== "undefined" &&
+      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+    if (!hasSR) return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SR();
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
-
     recognition.onresult = (event: any) => {
-      let interim = "";
-      let final = "";
+      let interim = "", final = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) final += t;
-        else interim += t;
+        if (event.results[i].isFinal) final += t; else interim += t;
       }
       setInterimText(interim || final);
-      if (final) {
-        onTranscript(final.trim());
-        setInterimText("");
-      }
+      if (final) { onTranscript(final.trim()); setInterimText(""); }
     };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      setInterimText("");
-    };
-    recognition.onend = () => {
-      setIsListening(false);
-      setInterimText("");
-    };
-
+    recognition.onerror = () => { setIsListening(false); setInterimText(""); };
+    recognition.onend = () => { setIsListening(false); setInterimText(""); };
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
     stopSpeaking();
-  }, [supported, isListening, onTranscript]);
-
-  const stopListening = () => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-    setInterimText("");
-  };
-
-  if (!supported) {
-    return (
-      <div className="flex items-center gap-1 text-xs text-slate-400 px-2">
-        <MicOff className="w-3 h-3" />
-        <span>Voice requires Chrome/Edge</span>
-      </div>
-    );
-  }
+  }, [isListening, onTranscript]);
 
   return (
     <div className="flex items-center gap-2">
-      {/* Interim transcript preview */}
-      {interimText && (
-        <div className="text-xs text-slate-500 italic max-w-[120px] truncate bg-slate-100 px-2 py-1 rounded-full">
-          "{interimText}"
+      {usingVibeVoice === true && (
+        <div title="VibeVoice TTS active — expressive AI voice"
+          className="flex items-center gap-1 text-xs text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">
+          <Sparkles className="w-3 h-3" />
+          <span className="hidden sm:inline">VibeVoice</span>
         </div>
       )}
-
-      {/* Mic button */}
-      <button
-        onClick={isListening ? stopListening : startListening}
-        disabled={disabled}
-        title={isListening ? "Stop listening" : "Speak your question"}
+      {interimText && (
+        <div className="text-xs text-slate-500 italic max-w-[120px] truncate bg-slate-100 px-2 py-1 rounded-full">
+          &ldquo;{interimText}&rdquo;
+        </div>
+      )}
+      <button onClick={isListening ? () => { recognitionRef.current?.stop(); setIsListening(false); setInterimText(""); } : startListening}
+        disabled={disabled} title={isListening ? "Stop listening" : "Speak your question"}
         className={`p-2.5 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-          isListening
-            ? "bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse"
-            : "bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-600"
-        }`}
-      >
-        {isListening ? (
-          <Mic className="w-4 h-4" />
-        ) : (
-          <Mic className="w-4 h-4" />
-        )}
+          isListening ? "bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse"
+                      : "bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-600"}`}>
+        {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
       </button>
-
-      {/* Speaker toggle */}
-      <button
-        onClick={() => {
-          if (isSpeaking) stopSpeaking();
-          else setVoiceEnabled(!voiceEnabled);
-        }}
-        title={
-          isSpeaking
-            ? "Stop speaking"
-            : voiceEnabled
-              ? "Disable voice"
-              : "Enable voice"
-        }
+      <button onClick={() => { if (isSpeaking) stopSpeaking(); else setVoiceEnabled(v => !v); }}
+        title={isSpeaking ? "Stop speaking" : voiceEnabled ? "Disable voice" : "Enable voice"}
         className={`p-2.5 rounded-xl transition-all ${
-          isSpeaking
-            ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/30 animate-pulse"
-            : voiceEnabled
-              ? "bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-600"
-              : "bg-slate-100 text-slate-400"
-        }`}
-      >
-        {isSpeaking ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : voiceEnabled ? (
-          <Volume2 className="w-4 h-4" />
-        ) : (
-          <VolumeX className="w-4 h-4" />
-        )}
+          isSpeaking ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/30 animate-pulse"
+          : voiceEnabled ? "bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-600"
+          : "bg-slate-100 text-slate-400"}`}>
+        {isSpeaking ? <Loader2 className="w-4 h-4 animate-spin" />
+         : voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
       </button>
     </div>
   );

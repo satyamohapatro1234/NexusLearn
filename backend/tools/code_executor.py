@@ -286,30 +286,15 @@ class CodeExecutionEnvironment:
         timeout: int,
         assets_dir: Path | None,
     ) -> tuple[str, str, int, float]:
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
+        # Route through DifySandbox (isolated Docker container) instead of
+        # bare subprocess.run on the host. Security: Seccomp whitelist blocks
+        # all unauthorized syscalls; no host filesystem or network access.
+        from backend.tools.sandbox_client import run_code as sandbox_run
 
-        with self.workspace.create_temp_dir() as temp_dir:
-            code_file = temp_dir / "code.py"
-            code_file.write_text(code, encoding="utf-8")
-
-            work_dir = assets_dir if assets_dir else temp_dir
-            start_time = time.time()
-
-            result = subprocess.run(
-                [sys.executable, str(code_file)],
-                check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                cwd=str(work_dir),
-                env=env,
-            )
-
-            elapsed_ms = (time.time() - start_time) * 1000
-            return result.stdout, result.stderr, result.returncode, elapsed_ms
+        start_time = time.time()
+        stdout, stderr, returncode = sandbox_run(code, language="python3", timeout=timeout)
+        elapsed_ms = (time.time() - start_time) * 1000
+        return stdout, stderr, returncode, elapsed_ms
 
 
 WORKSPACE_MANAGER = WorkspaceManager()

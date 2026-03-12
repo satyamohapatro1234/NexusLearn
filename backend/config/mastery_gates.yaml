@@ -1,0 +1,39 @@
+# NexusLearn Mastery Gates
+# The Superintendent reads this before routing every request.
+# Agents below their mastery threshold are blocked — student is redirected to Guide.
+
+mastery_gates:
+  # Always accessible — no mastery required
+  chat:     0.0
+  guide:    0.0
+
+  # Requires basic understanding before practicing
+  solve:    0.4
+  question: 0.4
+
+  # Requires solid foundation before going deeper
+  co_writer: 0.5
+  research:  0.6
+
+  # Requires good mastery before generating novel ideas
+  ideagen:   0.7
+
+# Hint mode thresholds
+# Below this, Solve agent enables step-by-step hints
+solve_hints_threshold: 0.7
+
+# Question difficulty selection
+question_difficulty:
+  easy:   0.0    # mastery < 0.55
+  medium: 0.55   # mastery 0.55 - 0.75
+  hard:   0.75   # mastery >= 0.75
+
+# Voice personas per agent
+voice_personas:
+  guide:     emma      # warm, patient teacher
+  question:  grace     # encouraging during quizzes
+  solve:     carter    # energetic for coding challenges
+  research:  frank     # calm for deep explanations
+  chat:      davis     # casual and friendly
+  ideagen:   grace     # creative and upbeat
+  co_writer: mike      # patient, collaborative

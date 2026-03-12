@@ -93,6 +93,45 @@ services:
     networks:
       - deeptutor-network
 
+
+  # ============================================
+  # NexusLearn Sandbox Service (Code Execution)
+  # Isolated Docker container - student code cannot touch host
+  # Uses Linux Seccomp whitelist for syscall restriction
+  # ============================================
+  nexuslearn-sandbox:
+    image: langgenius/dify-sandbox:latest
+    container_name: nexuslearn-sandbox
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8194:8194"
+    networks:
+      - deeptutor-network
+
+  # ============================================
+  # NexusLearn VibeVoice TTS Service (Port 8195)
+  # Expressive teacher voice - not robotic browser TTS
+  # Requires CUDA GPU. RTX 3060 12GB is the target card.
+  # ============================================
+  nexuslearn-tts:
+    build:
+      context: .
+      dockerfile: vibevoice/Dockerfile
+    container_name: nexuslearn-tts
+    restart: unless-stopped
+    ports:
+      - "8195:8195"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - deeptutor-network
+
 # ============================================
 # Networks
 # ============================================

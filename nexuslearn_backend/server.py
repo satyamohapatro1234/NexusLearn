@@ -1,9 +1,27 @@
 #!/usr/bin/env python3
-"""NexusLearn Temp API - All 7 agents"""
-import asyncio, json, subprocess, sys, tempfile, time, os, uuid
+"""NexusLearn API — Superintendent-routed, VibeVoice-powered"""
+import asyncio, json, sys, tempfile, time, os, uuid
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Add project root so backend.agents is importable
+import pathlib
+_project_root = str(pathlib.Path(__file__).parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+# Superintendent lazy loader (avoids import errors if DeepTutor deps missing)
+_superintendent = None
+def _get_superintendent():
+    global _superintendent
+    if _superintendent is None:
+        try:
+            from backend.agents.superintendent import superintendent_agent
+            _superintendent = superintendent_agent
+        except Exception as e:
+            pass
+    return _superintendent
 
 app = FastAPI(title="NexusLearn API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -375,19 +393,26 @@ async def questions(d: dict = {}):
     qs = [{"question": q["q"], "type": "multiple_choice", "options": q["opts"],
            "correct_answer": q["opts"][q["ans"]], "explanation": q["exp"]}
           for q in RESPONSES["questions"][:d.get("count",4)]]
-    return {"questions": qs, "topic": d.get("topic","python"), "generated": len(qs)}
+    first_q = qs[0]["question"] if qs else "What is recursion?"
+    return {"question": first_q, "questions": qs, "topic": d.get("topic","python"), "generated": len(qs)}
 
 @app.post("/api/v1/code/run")
 async def run_code(d: dict):
-    if d.get("language","python").lower() != "python":
-        return {"stdout":"","stderr":f"Use Wandbox for {d['language']}","exit_code":1}
+    """
+    Execute student code via DifySandbox (isolated Docker container).
+    Replaces bare subprocess.run — student code cannot touch the host.
+    Start sandbox: docker run -d --name nexuslearn-sandbox -p 8194:8194 --privileged langgenius/dify-sandbox:latest
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(__file__).replace("/nexuslearn_backend/server.py", ""))
     try:
-        with tempfile.NamedTemporaryFile(mode="w",suffix=".py",delete=False) as f:
-            f.write(d.get("code","print(42)")); fname = f.name
-        r = subprocess.run([sys.executable,fname],capture_output=True,text=True,timeout=10)
-        os.unlink(fname)
-        return {"stdout":r.stdout,"stderr":r.stderr,"exit_code":r.returncode}
-    except: return {"stdout":"","stderr":"Error running code","exit_code":-1}
+        from backend.tools.sandbox_client import run_code as sandbox_run
+        language = d.get("language", "python").lower()
+        code = d.get("code", "print(42)")
+        stdout, stderr, exit_code = sandbox_run(code, language=language, timeout=10)
+        return {"stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+    except Exception as e:
+        return {"stdout": "", "stderr": f"Sandbox error: {e}", "exit_code": -1}
 
 @app.post("/api/v1/knowledge/upload")
 async def upload(file: UploadFile = File(...)):
@@ -396,6 +421,102 @@ async def upload(file: UploadFile = File(...)):
 
 @app.post("/api/v1/ideagen/generate")
 async def ideagen(d: dict = {}): return {"ideas": RESPONSES["ideas"]}
+
+# ── SUPERINTENDENT: Unified routing endpoint ──────────────────────────────────
+# All student messages flow through here. The Superintendent decides which
+# of the 7 agents handles the message, enforces mastery gates, and injects
+# shared context. Individual WS routes below are kept for backwards-compat.
+
+@app.websocket("/api/v1/nexus/ws")
+async def nexus_ws(ws: WebSocket):
+    """
+    The primary NexusLearn WebSocket.
+    Replaces all individual agent WebSocket routes for the /nexus page.
+
+    Client sends:
+        {"message": "...", "student_id": "...", "session_id": "..."}
+
+    Server streams back (same format as before, fully compatible):
+        {"type": "thinking", "content": "..."}
+        {"type": "start"}
+        {"type": "delta", "content": "..."}
+        {"type": "end", "agent": "...", "voice": "...", "metadata": {...}}
+    """
+    await ws.accept()
+    try:
+        while True:
+            d = await ws.receive_json()
+            msg = d.get("message", d.get("content", "")).strip()
+            student_id = d.get("student_id", "student_001")
+            session_id = d.get("session_id", f"session_{int(time.time())}")
+            language = d.get("language", "en")
+
+            if not msg:
+                continue
+
+            superintendent = _get_superintendent()
+
+            if superintendent:
+                # ── Superintendent path (full hierarchy) ──
+                await ws.send_json({"type": "thinking", "content": "🤔 Routing to best agent..."})
+                try:
+                    response = await superintendent.route(
+                        student_id=student_id,
+                        session_id=session_id,
+                        message=msg,
+                        language=language,
+                    )
+                    await ws.send_json({"type": "start"})
+                    # Stream content in chunks (simulate streaming for large responses)
+                    content = response.content
+                    chunk_size = 40
+                    for i in range(0, len(content), chunk_size):
+                        await ws.send_json({"type": "delta", "content": content[i:i+chunk_size]})
+                        await asyncio.sleep(0.01)
+                    await ws.send_json({
+                        "type": "end",
+                        "agent": response.agent_name,
+                        "voice": response.voice_persona,
+                        "speak_text": response.speak_text,
+                        "content_type": response.content_type,
+                        "next_action": response.next_suggested_action,
+                        "is_redirect": response.is_redirect,
+                        "page_actions": response.page_actions,
+                        "remotion_config": response.remotion_config,
+                        "metadata": {
+                            "mastery": superintendent.get_mastery(student_id, "general"),
+                        }
+                    })
+                except Exception as e:
+                    await ws.send_json({"type": "error", "content": f"Superintendent error: {e}"})
+                    # Fallback to basic chat
+                    await ws.send_json({"type": "start"})
+                    await ws_stream(ws, pick(msg))
+                    await ws.send_json({"type": "end", "agent": "ChatAgent", "voice": "emma"})
+            else:
+                # ── Fallback path (no Superintendent, use existing mock) ──
+                await ws.send_json({"type": "thinking", "content": "🤔 Processing..."})
+                await asyncio.sleep(0.3)
+                await ws.send_json({"type": "start"})
+                await ws_stream(ws, pick(msg))
+                await ws.send_json({"type": "end", "agent": "ChatAgent", "voice": "emma"})
+
+    except WebSocketDisconnect:
+        pass
+
+
+@app.get("/api/v1/nexus/mastery")
+async def get_mastery_status(student_id: str = "student_001"):
+    """Get current mastery scores for a student (for the dashboard)."""
+    superintendent = _get_superintendent()
+    if superintendent:
+        # Return mastery for common topics
+        topics = ["recursion", "linked-lists", "sorting", "trees", "graphs",
+                  "dynamic-programming", "oop", "arrays", "strings", "complexity"]
+        scores = {t: superintendent.get_mastery(student_id, t) for t in topics}
+        return {"student_id": student_id, "mastery": scores}
+    return {"student_id": student_id, "mastery": {}}
+
 
 # ── WEBSOCKETS ─────────────────────────────────────────────────────────────────
 

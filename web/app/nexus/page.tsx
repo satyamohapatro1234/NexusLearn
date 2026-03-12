@@ -71,6 +71,8 @@ export default function NexusLearnPage() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("chat");
   const [lastAIText, setLastAIText] = useState<string | null>(null);
+  const [voicePersona, setVoicePersona] = useState<string>("guide");
+  const [agentName, setAgentName] = useState<string>("chat");
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [skills, setSkills] = useState(() => loadSkills());
   const chatRef = useRef<HTMLDivElement>(null);
@@ -119,6 +121,8 @@ export default function NexusLearnPage() {
           body: JSON.stringify({
             message: text.trim(),
             history,
+            student_id: "student_001",
+            session_id: `session_${typeof window !== "undefined" ? (window as any).__nexusSession || ((window as any).__nexusSession = Date.now()) : Date.now()}`,
           }),
         });
 
@@ -126,6 +130,13 @@ export default function NexusLearnPage() {
 
         const data = await response.json();
         const aiText = data.response || data.content || "I couldn't process that. Please try again.";
+        const speakText = data.speak_text || aiText;
+        const persona = data.voice || data.voice_persona || "guide";
+        const agent = data.agent || "chat";
+
+        // Update voice persona for VoiceControl (teacher changes voice per agent)
+        setVoicePersona(persona);
+        setAgentName(agent);
 
         const aiMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
@@ -134,7 +145,7 @@ export default function NexusLearnPage() {
           ts: Date.now(),
         };
         setMessages((prev) => [...prev, aiMsg]);
-        setLastAIText(aiText);
+        setLastAIText(speakText);
 
         // Update mastery for the topic discussed
         const topicId = `chat_${text.substring(0, 20).replace(/\s+/g, "_").toLowerCase()}`;
@@ -144,7 +155,7 @@ export default function NexusLearnPage() {
         const errMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "system",
-          content: `⚠️ **Connection issue**: ${err.message}\n\nMake sure the DeepTutor backend is running at localhost:8000.`,
+          content: `⚠️ **Connection issue**: ${err.message}\n\nStart the backend with: ./start_all.sh`,
           ts: Date.now(),
         };
         setMessages((prev) => [...prev, errMsg]);
@@ -255,6 +266,7 @@ export default function NexusLearnPage() {
           <VoiceControl
             onTranscript={handleVoiceTranscript}
             speakText={lastAIText}
+            voicePersona={voicePersona as any}
             disabled={isLoading}
             onSpeakingChange={setIsSpeaking}
           />

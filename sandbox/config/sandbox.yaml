@@ -1,0 +1,26 @@
+sandbox:
+  # DifySandbox HTTP service (runs as Docker container)
+  host: "localhost"
+  port: 8194
+  timeout: 15        # seconds per execution
+  enable_network: false   # no outbound network from student code
+
+  # Supported languages
+  languages:
+    - python3
+    - javascript
+    - nodejs
+
+  # Resource limits per execution
+  limits:
+    memory_mb: 256
+    cpu_cores: 0.5
+
+  # Code content restrictions
+  blocked_imports:
+    - os
+    - subprocess
+    - sys
+    - socket
+    - ctypes
+    - importlib
