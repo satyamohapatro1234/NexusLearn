@@ -30,6 +30,7 @@ import {
 import VoiceControl from "@/components/nexus/VoiceControl";
 import MasteryDashboard from "@/components/nexus/MasteryDashboard";
 import { recordAttempt, loadSkills } from "@/lib/bkt";
+import { useAuth } from "@/context/AuthContext";
 
 // Dynamically import heavy components
 const LessonVideo = dynamic(() => import("@/components/nexus/LessonVideo"), {
@@ -99,6 +100,7 @@ function extractSkillId(text: string): { id: string; label: string } {
 
 // ─── Main Component ───────────────────────────────────────
 function NexusLearnContent() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -201,6 +203,8 @@ function NexusLearnContent() {
           message: text.trim(),
           session_id: nexusSessionId.current,
           history,
+          student_id: user?.id ?? "guest",
+          language: user?.language ?? "en",
         }));
       };
 
@@ -389,7 +393,7 @@ function NexusLearnContent() {
           />
           {/* LiveKit voice session — graceful fallback if LiveKit not running */}
           <VoiceTeacher
-            studentId="student_001"
+            studentId={user?.id ?? "guest"}
             onTranscript={handleVoiceTranscript}
             className="hidden sm:flex"
           />

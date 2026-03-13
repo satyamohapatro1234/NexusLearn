@@ -1,13 +1,93 @@
 #!/usr/bin/env python3
-"""NexusLearn API - All 7 agents + Superintendent + VibeVoice"""
+"""NexusLearn API - All 7 agents + Superintendent + VibeVoice + Auth"""
 import asyncio, json, subprocess, sys, tempfile, time, os, uuid
 import pathlib
+import sqlite3
+import hashlib
+import secrets
 import httpx
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# ── Auth DB setup ─────────────────────────────────────────────────────────────
+_DB_PATH = pathlib.Path(__file__).parent.parent / "data" / "nexuslearn.db"
+_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+_JWT_SECRET = os.environ.get("NEXUS_JWT_SECRET", "nexuslearn-dev-secret-change-in-production")
+
+def _get_db():
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def _init_db():
+    db = _get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            language TEXT DEFAULT 'en',
+            llm_provider TEXT DEFAULT '',
+            llm_model TEXT DEFAULT '',
+            llm_base_url TEXT DEFAULT '',
+            llm_api_key TEXT DEFAULT '',
+            setup_done INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+    """)
+    db.commit()
+    db.close()
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    hashed = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+    return f"{salt}:{hashed}"
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, hashed = stored.split(":", 1)
+        return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == hashed
+    except Exception:
+        return False
+
+def _make_token(user_id: str) -> str:
+    """Simple signed token: base64(user_id):signature"""
+    import base64, hmac
+    payload = base64.b64encode(user_id.encode()).decode()
+    sig = hmac.new(_JWT_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+def _verify_token(token: str) -> Optional[str]:
+    """Returns user_id if valid, None if invalid."""
+    import base64, hmac
+    try:
+        payload, sig = token.rsplit(".", 1)
+        expected = hmac.new(_JWT_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, expected):
+            return None
+        return base64.b64decode(payload.encode()).decode()
+    except Exception:
+        return None
+
+_bearer = HTTPBearer(auto_error=False)
+
+def _get_current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer)):
+    if not creds:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = _verify_token(creds.credentials)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    db = _get_db()
+    row = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(status_code=401, detail="User not found")
+    return dict(row)
 
 # ── Superintendent lazy loader ────────────────────────────────────────────────
 # Avoids import errors if DeepTutor deps are missing
@@ -71,6 +151,7 @@ async def _auto_probe_llm():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _init_db()
     await _auto_probe_llm()
     yield
 
@@ -410,6 +491,81 @@ async def ws_stream(ws, text, key="content"):
     if buf: await ws.send_json({key: " ".join(buf)})
 
 # ── REST ──────────────────────────────────────────────────────────────────────
+
+# ── AUTH ENDPOINTS ────────────────────────────────────────────────────────────
+
+@app.post("/api/v1/auth/register")
+async def auth_register(d: dict):
+    name = (d.get("name") or "").strip()
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    if not name or not email or len(password) < 6:
+        raise HTTPException(400, "Name, email and password (min 6 chars) required")
+    db = _get_db()
+    existing = db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if existing:
+        db.close()
+        raise HTTPException(409, "Email already registered")
+    user_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?,?,?,?,?)",
+        (user_id, name, email, _hash_password(password), time.strftime("%Y-%m-%dT%H:%M:%S"))
+    )
+    db.commit()
+    db.close()
+    token = _make_token(user_id)
+    return {"token": token, "user": {"id": user_id, "name": name, "email": email, "setup_done": False, "language": "en"}}
+
+@app.post("/api/v1/auth/login")
+async def auth_login(d: dict):
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    db = _get_db()
+    row = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    db.close()
+    if not row or not _verify_password(password, row["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    token = _make_token(row["id"])
+    return {
+        "token": token,
+        "user": {
+            "id": row["id"], "name": row["name"], "email": row["email"],
+            "language": row["language"], "setup_done": bool(row["setup_done"]),
+            "llm_provider": row["llm_provider"], "llm_model": row["llm_model"],
+        }
+    }
+
+@app.get("/api/v1/auth/me")
+async def auth_me(user: dict = Depends(_get_current_user)):
+    return {
+        "id": user["id"], "name": user["name"], "email": user["email"],
+        "language": user["language"], "setup_done": bool(user["setup_done"]),
+        "llm_provider": user["llm_provider"], "llm_model": user["llm_model"],
+    }
+
+@app.post("/api/v1/auth/update-profile")
+async def auth_update_profile(d: dict, user: dict = Depends(_get_current_user)):
+    db = _get_db()
+    db.execute("""
+        UPDATE users SET
+            language=COALESCE(?, language),
+            llm_provider=COALESCE(?, llm_provider),
+            llm_model=COALESCE(?, llm_model),
+            llm_base_url=COALESCE(?, llm_base_url),
+            llm_api_key=COALESCE(?, llm_api_key),
+            setup_done=COALESCE(?, setup_done)
+        WHERE id=?
+    """, (
+        d.get("language"), d.get("llm_provider"), d.get("llm_model"),
+        d.get("llm_base_url"), d.get("llm_api_key"),
+        1 if d.get("setup_done") else None,
+        user["id"]
+    ))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 @app.get("/health")
