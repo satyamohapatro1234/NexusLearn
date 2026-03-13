@@ -43,6 +43,7 @@ export default function HomePage() {
     chatState,
     setChatState,
     sendChatMessage,
+    triggerWelcome,
     clearChatHistory,
     newChatSession,
   } = useGlobal();
@@ -53,6 +54,7 @@ export default function HomePage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [showNotebookModal, setShowNotebookModal] = useState(false);
+  const welcomeTriggeredRef = useRef(false);
 
   // Format chat history for notebook
   const formatChatForNotebook = () => {
@@ -107,7 +109,16 @@ export default function HomePage() {
           }
         }
       })
-      .catch((err) => console.error("Failed to fetch KBs:", err));
+      .catch(() => { /* backend not ready yet — no-op */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-trigger welcome when chat is empty (works with or without LLM configured)
+  useEffect(() => {
+    if (welcomeTriggeredRef.current) return;
+    if (chatState.messages.length > 0) { welcomeTriggeredRef.current = true; return; }
+    welcomeTriggeredRef.current = true;
+    triggerWelcome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -166,6 +177,13 @@ export default function HomePage() {
       description: t("Brainstorm & synthesize"),
     },
     {
+      icon: Sparkles,
+      label: t("NexusLearn Studio"),
+      href: "/nexus",
+      color: "violet",
+      description: t("Voice · Code · Simulation"),
+    },
+    {
       icon: GraduationCap,
       label: t("Guided Learning"),
       href: "/guide",
@@ -182,12 +200,25 @@ export default function HomePage() {
   ];
 
   const hasMessages = chatState.messages.length > 0;
+  const isAwaitingWelcome = !hasMessages && chatState.isLoading;
 
   return (
     <div className="h-screen flex flex-col animate-fade-in">
       {/* Empty State / Welcome Screen */}
       {!hasMessages && (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
+          {isAwaitingWelcome ? (
+            /* Greeting loading state */
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-xl shadow-blue-500/30 animate-pulse">
+                <Bot className="w-8 h-8 text-white" />
+              </div>
+              <p className="text-slate-500 dark:text-slate-400 text-sm">
+                DeepTutor is starting up…
+              </p>
+            </div>
+          ) : (
+            <>
           <div className="text-center max-w-2xl mx-auto mb-8">
             <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-100 mb-3 tracking-tight">
               {t("Welcome to DeepTutor")}
@@ -315,6 +346,8 @@ export default function HomePage() {
               ))}
             </div>
           </div>
+        </>
+          )}
         </div>
       )}
 
@@ -418,11 +451,18 @@ export default function HomePage() {
                     </div>
                   </>
                 ) : (
-                  <>
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/30">
+                  <>                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/30">
                       <Bot className="w-4 h-4 text-white" />
                     </div>
-                    <div className="flex-1 space-y-3">
+                    <div className="flex-1 space-y-1">
+                      {/* Agent badge */}
+                      {msg.agent && (
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 tracking-wide">
+                            ✦ {msg.agent}
+                          </span>
+                        </div>
+                      )}
                       <div className="bg-white dark:bg-slate-800 px-5 py-4 rounded-2xl rounded-tl-none border border-slate-200 dark:border-slate-700 shadow-sm">
                         <div className="prose prose-slate dark:prose-invert prose-sm max-w-none">
                           <ReactMarkdown
@@ -440,6 +480,43 @@ export default function HomePage() {
                             <span>{t("Generating response...")}</span>
                           </div>
                         )}
+
+                        {/* NexusLearn deep-link card */}
+                        {!msg.isStreaming &&
+                          msg.agent &&
+                          ["TutorAgent", "ResearchGuideAgent", "SolverGuideAgent"].includes(msg.agent) && (() => {
+                            // Find the closest user message before this assistant message
+                            const prevUserMsg = [...chatState.messages]
+                              .slice(0, idx)
+                              .reverse()
+                              .find((m) => m.role === "user");
+                            const topicRaw = prevUserMsg?.content ?? "";
+                            const topic = topicRaw.slice(0, 120);
+                            // Visual tab is best for Tutor/Research; Solver gets code tab
+                            const tab = msg.agent === "SolverGuideAgent" ? "code" : "visual";
+                            const nexusHref = `/nexus?topic=${encodeURIComponent(topic)}&tab=${tab}`;
+                            return (
+                              <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-4">
+                                <Link
+                                  href={nexusHref}
+                                  className="group flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/30 dark:to-blue-900/30 border border-indigo-200 dark:border-indigo-700/50 hover:from-indigo-100 hover:to-blue-100 dark:hover:from-indigo-900/50 dark:hover:to-blue-900/50 transition-all"
+                                >
+                                  <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0 shadow-md shadow-indigo-500/30 group-hover:scale-105 transition-transform">
+                                    <GraduationCap className="w-5 h-5 text-white" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                                      Continue learning in NexusLearn
+                                    </p>
+                                    <p className="text-xs text-indigo-500 dark:text-indigo-400 truncate">
+                                      Pyodide WASM · VibeVoice · Lesson videos · Mastery tracking
+                                    </p>
+                                  </div>
+                                  <ExternalLink className="w-4 h-4 text-indigo-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 shrink-0" />
+                                </Link>
+                              </div>
+                            );
+                          })()}
                       </div>
 
                       {/* Sources */}
@@ -492,15 +569,7 @@ export default function HomePage() {
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
                     </span>
-                    {chatState.currentStage === "rag" &&
-                      t("Searching knowledge base...")}
-                    {chatState.currentStage === "web" &&
-                      t("Searching the web...")}
-                    {chatState.currentStage === "generating" &&
-                      t("Generating response...")}
-                    {!["rag", "web", "generating"].includes(
-                      chatState.currentStage,
-                    ) && chatState.currentStage}
+                    <span className="italic">{chatState.currentStage}</span>
                   </div>
                 </div>
               </div>

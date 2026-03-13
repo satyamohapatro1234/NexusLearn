@@ -234,6 +234,7 @@ interface HomeChatMessage {
   content: string;
   sources?: ChatSource;
   isStreaming?: boolean;
+  agent?: string;
 }
 
 interface ChatState {
@@ -298,6 +299,7 @@ interface GlobalContextType {
   chatState: ChatState;
   setChatState: React.Dispatch<React.SetStateAction<ChatState>>;
   sendChatMessage: (message: string) => void;
+  triggerWelcome: () => void;
   clearChatHistory: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
   newChatSession: () => void;
@@ -1994,6 +1996,7 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
               ...lastMessage,
               content: data.content,
               isStreaming: false,
+              agent: data.agent,
             };
           }
           return {
@@ -2039,6 +2042,68 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
         isLoading: false,
         currentStage: null,
       }));
+    };
+  };
+
+  /**
+   * Trigger the AI welcome/onboarding message (no user bubble shown).
+   * Opens a WebSocket, sends {action: "welcome"}, and streams the response
+   * as an assistant message only.
+   */
+  const triggerWelcome = () => {
+    // Set loading immediately so the page shows the "starting up" spinner
+    setChatState((prev) => ({ ...prev, isLoading: true, currentStage: "connecting" }));
+
+    const ws = new WebSocket(wsUrl("/api/v1/chat"));
+
+    let assistantMessage = "";
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ action: "welcome", session_id: sessionIdRef.current }));
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "session") {
+        sessionIdRef.current = data.session_id;
+        setChatState((prev) => ({ ...prev, sessionId: data.session_id }));
+      } else if (data.type === "status") {
+        setChatState((prev) => ({ ...prev, currentStage: data.stage || data.message }));
+      } else if (data.type === "stream") {
+        assistantMessage += data.content;
+        setChatState((prev) => {
+          const msgs = [...prev.messages];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === "assistant" && last?.isStreaming) {
+            msgs[msgs.length - 1] = { ...last, content: assistantMessage };
+          } else {
+            msgs.push({ role: "assistant", content: assistantMessage, isStreaming: true });
+          }
+          return { ...prev, messages: msgs, currentStage: "generating" };
+        });
+      } else if (data.type === "result") {
+        setChatState((prev) => {
+          const msgs = [...prev.messages];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === "assistant") {
+            msgs[msgs.length - 1] = { ...last, content: data.content, isStreaming: false };
+          }
+          return { ...prev, messages: msgs, isLoading: false, currentStage: null };
+        });
+        ws.close();
+      } else if (data.type === "error") {
+        // Silently fail — no error bubble for welcome
+        setChatState((prev) => ({ ...prev, isLoading: false, currentStage: null }));
+        ws.close();
+      }
+    };
+
+    ws.onerror = () => {
+      setChatState((prev) => ({ ...prev, isLoading: false, currentStage: null }));
+    };
+
+    ws.onclose = () => {
+      setChatState((prev) => ({ ...prev, isLoading: false, currentStage: null }));
     };
   };
 
@@ -2148,6 +2213,7 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
         chatState,
         setChatState,
         sendChatMessage,
+        triggerWelcome,
         clearChatHistory,
         loadChatSession,
         newChatSession,

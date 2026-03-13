@@ -233,6 +233,7 @@ export default function Sidebar() {
                   alt={t("DeepTutor Logo")}
                   width={32}
                   height={32}
+                  style={{ width: "32px", height: "32px" }}
                   className="object-contain"
                   priority
                 />

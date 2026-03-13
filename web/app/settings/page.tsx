@@ -274,6 +274,7 @@ export default function SettingsPage() {
               status={status}
               ports={ports}
               onRefresh={loadStatus}
+              onTabChange={(tab) => setActiveTab(tab)}
               t={t}
             />
           )}

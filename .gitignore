@@ -46,3 +46,12 @@ npm-debug.log*
 *.swp
 web/public/avatars/*.glb
 web/public/avatars/animations/*.glb
+
+# LiveKit native binary (auto-downloaded by start_all.ps1)
+livekit-bin/
+
+# Next.js TypeScript build cache
+web/tsconfig.tsbuildinfo
+
+# Backup files
+*.bak

@@ -26,10 +26,11 @@ const AvatarScene = dynamic(() => import("./three/AvatarScene"), {
 
 interface AvatarPanelProps {
   isSpeaking: boolean;
+  message?: string;
   className?: string;
 }
 
-export default function AvatarPanel({ isSpeaking, className = "" }: AvatarPanelProps) {
+export default function AvatarPanel({ isSpeaking, message = "", className = "" }: AvatarPanelProps) {
   const [selected, setSelected] = useState(AVATARS[0]);
   const [showPicker, setShowPicker] = useState(false);
 
@@ -71,7 +72,7 @@ export default function AvatarPanel({ isSpeaking, className = "" }: AvatarPanelP
 
       {/* Scene - lazy loaded */}
       <div className="flex-1 min-h-[200px]">
-        <AvatarScene avatarFile={selected.file} isSpeaking={isSpeaking} />
+        <AvatarScene avatarFile={selected.file} isSpeaking={isSpeaking} message={message} />
       </div>
 
       <div className={`h-1 flex-shrink-0 transition-all duration-300 ${
