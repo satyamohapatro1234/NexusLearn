@@ -22,6 +22,22 @@ import {
 import VoiceControl from "@/components/nexus/VoiceControl";
 import MasteryDashboard from "@/components/nexus/MasteryDashboard";
 import { recordAttempt, loadSkills } from "@/lib/bkt";
+import { usePageActions, type PageAction } from "@/lib/pageActions";
+import type { LessonConfig } from "@/lib/lessonConfig";
+
+// Dynamically import heavy components
+const LessonVideo = dynamic(() => import("@/components/nexus/LessonVideo"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-32 bg-slate-900 rounded-2xl">
+      <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+    </div>
+  ),
+});
+
+const VoiceTeacher = dynamic(() => import("@/components/nexus/VoiceTeacher"), {
+  ssr: false,
+});
 
 // Dynamically import heavy 3D components
 const AvatarPanel = dynamic(() => import("@/components/nexus/AvatarPanel"), {
@@ -75,6 +91,9 @@ export default function NexusLearnPage() {
   const [agentName, setAgentName] = useState<string>("chat");
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [skills, setSkills] = useState(() => loadSkills());
+  const [lessonConfig, setLessonConfig] = useState<LessonConfig | null>(null);
+  const [activeLessonTopic, setActiveLessonTopic] = useState<string | null>(null);
+  const { execute: executePageActions, isExecuting: isPageActing } = usePageActions();
   const chatRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -137,6 +156,18 @@ export default function NexusLearnPage() {
         // Update voice persona for VoiceControl (teacher changes voice per agent)
         setVoicePersona(persona);
         setAgentName(agent);
+
+        // Execute PageAgent teacher UI control (types code, clicks run, etc.)
+        if (data.page_actions?.length) {
+          executePageActions(data.page_actions as PageAction[]);
+        }
+
+        // If guide returned a Remotion lesson, show LessonVideo in chat
+        if (data.remotion_config || data.content_type === "remotion" || data.content_type === "html_lesson") {
+          if (data.remotion_config) setLessonConfig(data.remotion_config as LessonConfig);
+          const topic = data.remotion_config?.topic || text.substring(0, 40);
+          setActiveLessonTopic(topic);
+        }
 
         const aiMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
@@ -270,6 +301,11 @@ export default function NexusLearnPage() {
             disabled={isLoading}
             onSpeakingChange={setIsSpeaking}
           />
+          <VoiceTeacher
+            studentId="student_001"
+            onTranscript={handleVoiceTranscript}
+            className="hidden sm:flex"
+          />
         </div>
 
         {/* ── TAB CONTENT ── */}
@@ -306,6 +342,22 @@ export default function NexusLearnPage() {
                   </div>
                 ))}
 
+                {/* Phase 3: Remotion Lesson Video (shown when Guide returns a lesson) */}
+                {activeLessonTopic && (
+                  <div className="px-2 py-1">
+                    <LessonVideo
+                      topic={activeLessonTopic}
+                      title={lessonConfig?.title || activeLessonTopic}
+                      config={lessonConfig}
+                      onEnd={() => sendMessage("Give me a quiz question about " + activeLessonTopic)}
+                      onSkip={() => {
+                        setActiveLessonTopic(null);
+                        setLessonConfig(null);
+                      }}
+                    />
+                  </div>
+                )}
+
                 {isLoading && (
                   <div className="flex justify-start">
                     <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mr-2 flex-shrink-0">
@@ -324,6 +376,13 @@ export default function NexusLearnPage() {
 
               {/* Input bar */}
               <div className="p-3 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
+                {/* Phase 5: PageAgent status indicator */}
+                {isPageActing && (
+                  <div className="mx-3 mb-1 flex items-center gap-2 text-xs text-indigo-500">
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                    Teacher is controlling the editor...
+                  </div>
+                )}
                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-1.5">
                   <input
                     ref={inputRef}

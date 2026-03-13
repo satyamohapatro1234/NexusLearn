@@ -733,3 +733,62 @@ if __name__ == "__main__":
     import uvicorn
     print("NexusLearn API starting on port 8001...")
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="warning")
+
+# ── LIVEKIT VOICE SESSIONS ──────────────────────────────────────────────────
+@app.post("/api/v1/voice/token")
+async def get_voice_token(d: dict = {}):
+    """
+    Generate a LiveKit room token for the frontend.
+    Frontend uses this to join the voice session.
+    
+    Student connects as participant; teacher agent connects separately.
+    """
+    student_id = d.get("student_id", "student_001")
+    room_name = d.get("room_name", f"nexuslearn-{student_id}")
+    
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(__file__).replace("/nexuslearn_backend/server.py", ""))
+        from backend.agents.teacher.voice_teacher_agent import create_room_token
+        token = create_room_token(room_name, student_id, is_agent=False)
+        if token:
+            return {
+                "token": token,
+                "room": room_name,
+                "url": "ws://localhost:7880",
+                "student_id": student_id,
+            }
+    except Exception as e:
+        pass
+    
+    # Fallback: LiveKit not running
+    return {
+        "error": "LiveKit not available",
+        "message": "Start LiveKit: docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp livekit/livekit-server --dev",
+        "room": room_name,
+    }
+
+
+@app.post("/api/v1/voice/start-agent")
+async def start_voice_agent(d: dict = {}):
+    """
+    Start the voice teacher agent for a room.
+    In production this runs permanently; in dev it spawns per-room.
+    """
+    student_id = d.get("student_id", "student_001")
+    room_name = d.get("room_name", f"nexuslearn-{student_id}")
+    
+    try:
+        import subprocess as sp
+        import sys as _sys
+        project_root = str(__file__).replace("/nexuslearn_backend/server.py", "")
+        proc = sp.Popen(
+            [_sys.executable, "-m", "backend.agents.teacher.voice_teacher_agent",
+             "--room", room_name, "--student", student_id],
+            cwd=project_root,
+            stdout=sp.DEVNULL, stderr=sp.DEVNULL,
+        )
+        return {"status": "started", "room": room_name, "pid": proc.pid}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+

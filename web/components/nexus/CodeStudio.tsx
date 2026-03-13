@@ -241,6 +241,7 @@ export default function CodeStudio({
 
         {/* Run button */}
         <button
+          data-nexus-id="run-button"
           onClick={isRunning ? () => { abortRef.current = true; setIsRunning(false); } : runCode}
           disabled={!code.trim()}
           className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -287,6 +288,7 @@ export default function CodeStudio({
           </div>
           <textarea
             ref={textareaRef}
+            data-nexus-id="code-editor"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             spellCheck={false}
