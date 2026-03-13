@@ -3,8 +3,8 @@
 /**
  * CodeStudio - Multi-language IDE with live terminal output
  * - Code editor with syntax highlighting
- * - xterm.js terminal for live output display
- * - Piston API for execution (free, no key, 80+ languages)
+ * - Python → Pyodide WASM (browser-local, offline, zero server)
+ * - Other languages → Wandbox API (free, no key)
  * - BKT mastery tracking per language/topic
  */
 
@@ -27,6 +27,7 @@ import {
   executeCode,
   type CodeRunResult,
 } from "@/lib/piston";
+import { usePyodide } from "@/lib/usePyodide";
 import { recordAttempt, loadSkills, getMasteryPercent, getMasteryColor, getMasteryLabel } from "@/lib/bkt";
 
 interface OutputLine {
@@ -78,6 +79,9 @@ export default function CodeStudio({
     setShowLangMenu(false);
   };
 
+  // ── Pyodide (Python WASM) ──────────────────────────────────────────────────
+  const { runPython, status: pyodideStatus } = usePyodide();
+
   const addOutput = (type: OutputLine["type"], text: string) => {
     setOutput((prev) => [...prev, { type, text, ts: Date.now() }]);
   };
@@ -88,17 +92,23 @@ export default function CodeStudio({
     setIsRunning(true);
     setOutput([]);
 
-    addOutput("info", `▶ Running ${selectedLang.label}...`);
+    const isPython = selectedLang.id === "python";
+    const engineLabel = isPython ? "Pyodide (local WASM)" : "Wandbox";
+    addOutput("info", `▶ Running ${selectedLang.label} via ${engineLabel}...`);
     addOutput("info", `─────────────────────────────────`);
 
     const startMs = performance.now();
 
     try {
-      const result = await executeCode({
-        language: selectedLang.id,
-        code,
-        stdin: stdinVal || undefined,
-      });
+      // Python runs locally in the browser via Pyodide WASM — no server needed.
+      // All other languages use the Wandbox API.
+      const result = isPython
+        ? await runPython(code, stdinVal || undefined)
+        : await executeCode({
+            language: selectedLang.id,
+            code,
+            stdin: stdinVal || undefined,
+          });
 
       const elapsed = ((performance.now() - startMs) / 1000).toFixed(2);
 
@@ -133,11 +143,13 @@ export default function CodeStudio({
       onRunComplete?.(result);
     } catch (err: any) {
       addOutput("error", `✗ Execution failed: ${err.message}`);
-      addOutput("info", "  Check your internet connection (Wandbox API required)");
+      if (selectedLang.id !== "python") {
+        addOutput("info", "  Check your internet connection (Wandbox API required)");
+      }
     } finally {
       setIsRunning(false);
     }
-  }, [code, selectedLang, stdinVal, isRunning, skills, onRunComplete]);
+  }, [code, selectedLang, stdinVal, isRunning, skills, onRunComplete, runPython]);
 
   const copyCode = () => {
     navigator.clipboard.writeText(code);
@@ -204,6 +216,23 @@ export default function CodeStudio({
             <Cpu className="w-3 h-3" />
             <span>{masteryLabel}</span>
             <span className="opacity-70">{masteryPct}%</span>
+          </div>
+        )}
+
+        {/* Pyodide status badge — only shown for Python */}
+        {selectedLang.id === "python" && (
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+            pyodideStatus === "ready"   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+            pyodideStatus === "running" ? "bg-indigo-500/10  border-indigo-500/30  text-indigo-400 animate-pulse" :
+            pyodideStatus === "error"   ? "bg-red-500/10     border-red-500/30     text-red-400" :
+                                          "bg-slate-500/10   border-slate-500/30   text-slate-400 animate-pulse"
+          }`}>
+            <span>{pyodideStatus === "loading" ? "⏳" : pyodideStatus === "ready" ? "⚡" : pyodideStatus === "running" ? "🐍" : "⚠️"}</span>
+            <span>
+              {pyodideStatus === "loading" ? "Loading Python…" :
+               pyodideStatus === "ready"   ? "Pyodide ready"   :
+               pyodideStatus === "running" ? "Running…"        : "Pyodide error"}
+            </span>
           </div>
         )}
 

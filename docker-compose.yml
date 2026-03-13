@@ -95,19 +95,10 @@ services:
 
 
   # ============================================
-  # NexusLearn Sandbox Service (Code Execution)
-  # Isolated Docker container - student code cannot touch host
-  # Uses Linux Seccomp whitelist for syscall restriction
+  # NexusLearn Sandbox — REMOVED (no Docker needed)
+  # Python runs via Pyodide WASM in the browser.
+  # Other languages use the Wandbox API.
   # ============================================
-  nexuslearn-sandbox:
-    image: langgenius/dify-sandbox:latest
-    container_name: nexuslearn-sandbox
-    restart: unless-stopped
-    privileged: true
-    ports:
-      - "8194:8194"
-    networks:
-      - deeptutor-network
 
   # ============================================
   # NexusLearn VibeVoice TTS Service (Port 8195)

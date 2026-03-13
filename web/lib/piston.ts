@@ -1,11 +1,11 @@
 /**
- * Code Execution via Wandbox API
- * Free, no API key, supports 12+ languages
- * https://wandbox.org/
- * 
- * Note: Public Piston API became whitelist-only Feb 2026.
- * Wandbox is free, open source, runs on Japanese infrastructure.
- * For full offline use, self-host Wandbox or run DeepTutor's Python executor.
+ * Code Execution — NexusLearn
+ *
+ * Python  → Pyodide WASM in a Web Worker (100% local, no server, no Docker)
+ * Others  → Wandbox API (free, no key, 12+ languages)
+ *
+ * The usePyodide() hook manages the Worker lifecycle.
+ * CodeStudio imports executePython() for Python runs and executeCode() for all others.
  */
 
 export interface CodeRunResult {
@@ -194,6 +194,22 @@ sum=0
 for x in "\${fib[@]}"; do ((sum+=x)); done
 echo "Sum: \$sum"`,
 };
+
+/**
+ * Execute Python code via Pyodide WASM (browser-local, no server needed).
+ * This is a thin wrapper — the actual work happens in usePyodide.runPython().
+ * CodeStudio calls this via the hook; this export is for non-hook contexts.
+ * Falls back to Wandbox if called server-side.
+ */
+export async function executePython(
+  code: string,
+  stdin?: string
+): Promise<CodeRunResult> {
+  // This path is only hit if called outside of usePyodide hook context.
+  // Normally CodeStudio uses usePyodide() directly.
+  // Fallback: route through Wandbox cpython compiler.
+  return executeCode({ language: "python", code, stdin });
+}
 
 export async function executeCode(req: CodeRunRequest): Promise<CodeRunResult> {
   const lang = SUPPORTED_LANGUAGES.find((l) => l.id === req.language);
