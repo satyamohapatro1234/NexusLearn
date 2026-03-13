@@ -8,7 +8,7 @@
 #   powershell -ExecutionPolicy Bypass -File .\start_all.ps1
 # ============================================================
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 
