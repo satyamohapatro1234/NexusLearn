@@ -55,30 +55,70 @@ if (-not (Test-Path $livekitDir)) {
 }
 
 if (-not (Test-Path $livekitExe)) {
-    Write-Host "  Downloading LiveKit server binary for Windows..." -ForegroundColor Gray
+    Write-Host "  Downloading LiveKit server binary (~60 MB) for Windows..." -ForegroundColor Gray
+    Write-Host "  (This only happens once — cached to livekit-bin\)" -ForegroundColor DarkGray
 
-    # Latest release — Windows amd64
-    $releaseUrl = "https://github.com/livekit/livekit/releases/latest/download/livekit_windows_amd64.zip"
+    # Pinned to v1.8.3 for stability — update this line to upgrade
+    $lkVersion  = "v1.8.3"
+    $releaseUrl = "https://github.com/livekit/livekit/releases/download/$lkVersion/livekit_$($lkVersion.TrimStart('v'))_windows_amd64.zip"
     $zipPath    = Join-Path $livekitDir "livekit.zip"
 
+    $downloaded = $false
+
+    # ── Method 1: BITS Transfer (Windows built-in, shows progress, auto-retries) ──
     try {
-        Invoke-WebRequest -Uri $releaseUrl -OutFile $zipPath -UseBasicParsing
-        Expand-Archive -Path $zipPath -DestinationPath $livekitDir -Force
-        Remove-Item $zipPath
-
-        # The zip contains livekit-server.exe (or livekit.exe depending on release)
-        # Rename if needed
-        $altExe = Join-Path $livekitDir "livekit.exe"
-        if ((Test-Path $altExe) -and (-not (Test-Path $livekitExe))) {
-            Rename-Item $altExe $livekitExe
-        }
-
-        Write-Host "  ✅ LiveKit server binary downloaded to livekit-bin\" -ForegroundColor Green
+        Import-Module BitsTransfer -ErrorAction Stop
+        Write-Host "  Using BITS transfer (reliable, shows progress)..." -ForegroundColor DarkGray
+        Start-BitsTransfer -Source $releaseUrl -Destination $zipPath -DisplayName "LiveKit Server" -ErrorAction Stop
+        $downloaded = $true
+        Write-Host "  ✅ Download complete" -ForegroundColor Green
     } catch {
-        Write-Host "  ⚠ Auto-download failed: $_" -ForegroundColor Red
-        Write-Host "  → Manual download: https://github.com/livekit/livekit/releases/latest" -ForegroundColor Gray
-        Write-Host "    Get livekit_windows_amd64.zip, extract livekit-server.exe to livekit-bin\" -ForegroundColor Gray
-        Write-Host "  → Continuing without voice sessions (app still works)" -ForegroundColor Gray
+        Write-Host "  BITS unavailable, trying Invoke-WebRequest..." -ForegroundColor DarkGray
+        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+    }
+
+    # ── Method 2: Invoke-WebRequest fallback ──────────────────────────────────
+    if (-not $downloaded) {
+        try {
+            $ProgressPreference = 'SilentlyContinue'   # avoids the extremely slow default progress bar
+            Invoke-WebRequest -Uri $releaseUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 300
+            $downloaded = $true
+            $ProgressPreference = 'Continue'
+            Write-Host "  ✅ Download complete" -ForegroundColor Green
+        } catch {
+            $ProgressPreference = 'Continue'
+            Write-Host "  ⚠ Auto-download failed: $_" -ForegroundColor Red
+        }
+    }
+
+    # ── Extract + rename ──────────────────────────────────────────────────────
+    if ($downloaded -and (Test-Path $zipPath)) {
+        try {
+            Expand-Archive -Path $zipPath -DestinationPath $livekitDir -Force
+            Remove-Item $zipPath -Force
+
+            # Release zip contains 'livekit.exe'; script expects 'livekit-server.exe'
+            $altExe = Join-Path $livekitDir "livekit.exe"
+            if ((Test-Path $altExe) -and (-not (Test-Path $livekitExe))) {
+                Rename-Item $altExe $livekitExe
+            }
+
+            if (Test-Path $livekitExe) {
+                Write-Host "  ✅ LiveKit server ready at livekit-bin\livekit-server.exe" -ForegroundColor Green
+            } else {
+                Write-Host "  ⚠ Binary not found after extraction — check livekit-bin\ contents" -ForegroundColor Red
+                Get-ChildItem $livekitDir | ForEach-Object { Write-Host "    $($_.Name)" -ForegroundColor DarkGray }
+                $livekitExe = $null
+            }
+        } catch {
+            Write-Host "  ⚠ Extraction failed: $_" -ForegroundColor Red
+            $livekitExe = $null
+        }
+    } else {
+        Write-Host "  → Manual install: download livekit_windows_amd64.zip from" -ForegroundColor Gray
+        Write-Host "    https://github.com/livekit/livekit/releases/tag/$lkVersion" -ForegroundColor Cyan
+        Write-Host "    Extract livekit.exe → rename to livekit-server.exe → put in livekit-bin\" -ForegroundColor Gray
+        Write-Host "  → Continuing without LiveKit (all other features work fine)" -ForegroundColor DarkYellow
         $livekitExe = $null
     }
 } else {
