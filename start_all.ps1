@@ -138,7 +138,8 @@ Write-Host ""
 Write-Host "[4/4] Starting Next.js frontend..." -ForegroundColor Yellow
 
 $webPath = Join-Path $Root "web"
-$frontendProc = Start-Process -FilePath "npm" `
+$npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue)?.Source ?? "C:\Program Files\nodejs\npm.cmd"
+$frontendProc = Start-Process -FilePath $npmCmd `
     -ArgumentList "run", "dev" `
     -WorkingDirectory $webPath `
     -PassThru -WindowStyle Hidden
