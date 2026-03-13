@@ -683,6 +683,37 @@ async def detect_providers():
 
     return {"detected": detected}
 
+@app.post("/api/v1/config/test-llm")
+async def test_llm_connection(d: dict):
+    """Quick reachability check for a given LLM provider/model from the setup wizard."""
+    import urllib.request, ssl
+    provider = d.get("provider", "ollama")
+    base_url = (d.get("base_url") or "http://localhost:11434").rstrip("/")
+    model = d.get("model", "")
+
+    # Normalise: always probe the root /api/tags (Ollama) or /v1/models (OpenAI-compat)
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    headers = {"Content-Type": "application/json"}
+    api_key = d.get("api_key", "")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    # Try Ollama-style probe first (works for Ollama + LM Studio)
+    for probe_path in ["/api/tags", "/v1/models"]:
+        try:
+            req = urllib.request.Request(f"{base_url}{probe_path}", headers=headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+                return {"ok": True, "message": f"Connected to {provider} at {base_url}"}
+        except Exception:
+            continue
+
+    # For cloud providers (openai, anthropic, groq) just check creds exist
+    if provider in ("openai", "anthropic", "groq", "openrouter") and api_key:
+        return {"ok": True, "message": "API key provided — connection will be verified on first use"}
+
+    raise HTTPException(status_code=503, detail=f"Could not reach {provider} at {base_url}")
+
+
 @app.post("/api/v1/config/detect/apply")
 async def apply_detected(d: dict):
     """Auto-create LLM + Embedding configs for a detected provider+model list."""

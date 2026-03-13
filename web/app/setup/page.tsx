@@ -64,11 +64,17 @@ export default function SetupPage() {
       const r = await fetch("http://localhost:8001/api/v1/config/detect");
       if (r.ok) {
         const d = await r.json();
-        if (d.provider) {
-          setLlmProvider(d.provider);
-          setLlmModel(d.model ?? "");
-          setLlmBaseUrl(d.base_url ?? "");
-          setDetectStatus(`Detected: ${d.provider} — ${d.model}`);
+        // Backend returns { detected: [{provider, base_url, models, running}] }
+        const list: Array<{provider: string; base_url: string; models: string[]; running: boolean}> =
+          d.detected ?? (d.provider ? [d] : []);
+        if (list.length > 0 && list[0].models?.length > 0) {
+          const hit = list[0];
+          const providerName = hit.provider === "lm_studio" ? "openai" : hit.provider;
+          setLlmProvider(providerName);
+          setLlmModel(hit.models[0]);
+          // base_url from detect is /v1 path; keep as-is for OpenAI-compat, strip for ollama display
+          setLlmBaseUrl(hit.base_url.replace(/\/v1$/, ""));
+          setDetectStatus(`Detected: ${hit.provider} — ${hit.models[0]}`);
         } else {
           setDetectStatus("No local LLM detected. Please configure manually.");
         }
