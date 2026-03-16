@@ -16,7 +16,7 @@
     "audit:report": "playwright show-report"
   },
   "dependencies": {
-    "@react-three/drei": "^9.117.3",
+    "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^8.17.10",
     "@remotion/captions": "^4.0.435",
     "@remotion/player": "^4.0.435",
