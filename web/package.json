@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@react-three/drei": "^9.117.3",
-    "@react-three/fiber": "^8.17.10",
+    "@react-three/fiber": "^9.5.0",
     "@remotion/captions": "^4.0.435",
     "@remotion/player": "^4.0.435",
     "clsx": "^2.1.1",
